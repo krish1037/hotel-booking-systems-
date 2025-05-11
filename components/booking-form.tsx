@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { CreditCard, Calendar, Shield } from "lucide-react"
+import { toast } from "sonner"
 
 interface BookingFormProps {
   hotelId: number
@@ -23,14 +24,63 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
   const router = useRouter()
   const [paymentMethod, setPaymentMethod] = useState("credit-card")
   const [loading, setLoading] = useState(false)
+  const [formData, setFormData] = useState({
+    firstName: "",
+    lastName: "",
+    email: "",
+    phone: "",
+    specialRequests: "",
+    cardNumber: "",
+    expiryDate: "",
+    cvv: "",
+    nameOnCard: "",
+    country: "us",
+    address: "",
+    city: "",
+    state: "",
+    zip: "",
+    termsAccepted: false
+  })
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value, type, checked } = e.target
+    setFormData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }))
+  }
+
+  const handleSelectChange = (name: string, value: string) => {
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }))
+  }
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault()
     setLoading(true)
 
     try {
-      // Simulate API call with actual booking data
-      const response = await fetch('/api/bookings', {
+      // Validate required fields
+      if (!formData.firstName || !formData.lastName || !formData.email || !formData.phone) {
+        throw new Error('Please fill in all required guest information')
+      }
+
+      if (paymentMethod === 'credit-card' && (!formData.cardNumber || !formData.expiryDate || !formData.cvv || !formData.nameOnCard)) {
+        throw new Error('Please fill in all required payment information')
+      }
+
+      if (!formData.address || !formData.city || !formData.state || !formData.zip) {
+        throw new Error('Please fill in all required billing address information')
+      }
+
+      if (!formData.termsAccepted) {
+        throw new Error('Please accept the terms and conditions')
+      }
+
+      // Create booking
+      const bookingResponse = await fetch('/api/bookings', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -41,22 +91,61 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
           checkIn,
           checkOut,
           guests: parseInt(guests),
-          paymentMethod,
-          // Add other form data here
+          guestInfo: {
+            firstName: formData.firstName,
+            lastName: formData.lastName,
+            email: formData.email,
+            phone: formData.phone,
+            specialRequests: formData.specialRequests
+          },
+          paymentInfo: {
+            method: paymentMethod,
+            cardNumber: formData.cardNumber,
+            expiryDate: formData.expiryDate,
+            cvv: formData.cvv,
+            nameOnCard: formData.nameOnCard
+          },
+          billingAddress: {
+            country: formData.country,
+            address: formData.address,
+            city: formData.city,
+            state: formData.state,
+            zip: formData.zip
+          }
         }),
-      });
+      })
 
-      if (!response.ok) {
-        throw new Error('Booking failed');
+      if (!bookingResponse.ok) {
+        const error = await bookingResponse.json()
+        throw new Error(error.message || 'Failed to create booking')
       }
 
-      const data = await response.json();
-      router.push(`/booking/confirmation?bookingId=${data.bookingId}`);
+      const bookingData = await bookingResponse.json()
+
+      // Process payment
+      const paymentResponse = await fetch('/api/payments', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          bookingId: bookingData.id,
+          amount: 299, // This should be calculated based on room price and duration
+          paymentMethod
+        }),
+      })
+
+      if (!paymentResponse.ok) {
+        throw new Error('Payment processing failed')
+      }
+
+      toast.success('Booking confirmed successfully!')
+      router.push(`/booking/confirmation?bookingId=${bookingData.id}`)
     } catch (error) {
-      console.error('Error creating booking:', error);
-      // Handle error state here
+      console.error('Error creating booking:', error)
+      toast.error(error instanceof Error ? error.message : 'Failed to create booking')
     } finally {
-      setLoading(false);
+      setLoading(false)
     }
   }
 
@@ -95,29 +184,60 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label htmlFor="first-name">First Name</Label>
-              <Input id="first-name" required />
+              <Label htmlFor="firstName">First Name</Label>
+              <Input 
+                id="firstName" 
+                name="firstName"
+                value={formData.firstName}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="last-name">Last Name</Label>
-              <Input id="last-name" required />
+              <Label htmlFor="lastName">Last Name</Label>
+              <Input 
+                id="lastName" 
+                name="lastName"
+                value={formData.lastName}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label htmlFor="email">Email Address</Label>
-              <Input id="email" type="email" required />
+              <Input 
+                id="email" 
+                name="email"
+                type="email" 
+                value={formData.email}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="phone">Phone Number</Label>
-              <Input id="phone" type="tel" required />
+              <Input 
+                id="phone" 
+                name="phone"
+                type="tel" 
+                value={formData.phone}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="special-requests">Special Requests (optional)</Label>
-            <Input id="special-requests" />
+            <Label htmlFor="specialRequests">Special Requests (optional)</Label>
+            <Input 
+              id="specialRequests" 
+              name="specialRequests"
+              value={formData.specialRequests}
+              onChange={handleInputChange}
+            />
           </div>
         </CardContent>
       </Card>
@@ -137,30 +257,57 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
 
             <TabsContent value="credit-card" className="space-y-4 mt-4">
               <div className="space-y-2">
-                <Label htmlFor="card-number">Card Number</Label>
+                <Label htmlFor="cardNumber">Card Number</Label>
                 <div className="relative">
-                  <Input id="card-number" placeholder="1234 5678 9012 3456" required />
+                  <Input 
+                    id="cardNumber" 
+                    name="cardNumber"
+                    placeholder="1234 5678 9012 3456" 
+                    value={formData.cardNumber}
+                    onChange={handleInputChange}
+                    required 
+                  />
                   <CreditCard className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
                 </div>
               </div>
 
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
-                  <Label htmlFor="expiry">Expiry Date</Label>
+                  <Label htmlFor="expiryDate">Expiry Date</Label>
                   <div className="relative">
-                    <Input id="expiry" placeholder="MM/YY" required />
+                    <Input 
+                      id="expiryDate" 
+                      name="expiryDate"
+                      placeholder="MM/YY" 
+                      value={formData.expiryDate}
+                      onChange={handleInputChange}
+                      required 
+                    />
                     <Calendar className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
                   </div>
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="cvv">CVV</Label>
-                  <Input id="cvv" placeholder="123" required />
+                  <Input 
+                    id="cvv" 
+                    name="cvv"
+                    placeholder="123" 
+                    value={formData.cvv}
+                    onChange={handleInputChange}
+                    required 
+                  />
                 </div>
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="name-on-card">Name on Card</Label>
-                <Input id="name-on-card" required />
+                <Label htmlFor="nameOnCard">Name on Card</Label>
+                <Input 
+                  id="nameOnCard" 
+                  name="nameOnCard"
+                  value={formData.nameOnCard}
+                  onChange={handleInputChange}
+                  required 
+                />
               </div>
             </TabsContent>
 
@@ -185,7 +332,10 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
         <CardContent className="space-y-4">
           <div className="space-y-2">
             <Label htmlFor="country">Country/Region</Label>
-            <Select defaultValue="us">
+            <Select 
+              value={formData.country} 
+              onValueChange={(value) => handleSelectChange('country', value)}
+            >
               <SelectTrigger>
                 <SelectValue placeholder="Select country" />
               </SelectTrigger>
@@ -202,21 +352,45 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
 
           <div className="space-y-2">
             <Label htmlFor="address">Street Address</Label>
-            <Input id="address" required />
+            <Input 
+              id="address" 
+              name="address"
+              value={formData.address}
+              onChange={handleInputChange}
+              required 
+            />
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="space-y-2">
               <Label htmlFor="city">City</Label>
-              <Input id="city" required />
+              <Input 
+                id="city" 
+                name="city"
+                value={formData.city}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="state">State/Province</Label>
-              <Input id="state" required />
+              <Input 
+                id="state" 
+                name="state"
+                value={formData.state}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="zip">ZIP/Postal Code</Label>
-              <Input id="zip" required />
+              <Input 
+                id="zip" 
+                name="zip"
+                value={formData.zip}
+                onChange={handleInputChange}
+                required 
+              />
             </div>
           </div>
         </CardContent>
@@ -226,7 +400,14 @@ export function BookingForm({ hotelId, roomId, checkIn, checkOut, guests }: Book
       <Card className="mb-6">
         <CardContent className="pt-6">
           <div className="flex items-start space-x-2">
-            <Checkbox id="terms" required />
+            <Checkbox 
+              id="terms" 
+              checked={formData.termsAccepted}
+              onCheckedChange={(checked) => 
+                setFormData(prev => ({ ...prev, termsAccepted: checked as boolean }))
+              }
+              required 
+            />
             <div className="grid gap-1.5 leading-none">
               <Label
                 htmlFor="terms"
